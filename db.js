@@ -1,21 +1,35 @@
-const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
+const initSqlJs = require('sql.js');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'vulnerabilidades.db');
 
 let db;
 
-function getDb() {
-    if (!db) {
-        db = new Database(DB_PATH);
-        db.pragma('journal_mode = WAL');
-        initSchema();
+async function getDb() {
+    if (db) return db;
+
+    const SQL = await initSqlJs();
+
+    if (fs.existsSync(DB_PATH)) {
+        const fileBuffer = fs.readFileSync(DB_PATH);
+        db = new SQL.Database(fileBuffer);
+    } else {
+        db = new SQL.Database();
     }
+
+    initSchema();
     return db;
 }
 
+function saveDb() {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_PATH, buffer);
+}
+
 function initSchema() {
-    db.exec(`
+    db.run(`
         CREATE TABLE IF NOT EXISTS snapshots (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
             snapshot_date         TEXT NOT NULL,
@@ -27,7 +41,7 @@ function initSchema() {
 
         CREATE TABLE IF NOT EXISTS remediations (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_id     INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+            snapshot_id     INTEGER NOT NULL,
             remediation     TEXT,
             description     TEXT,
             vulnerabilities INTEGER DEFAULT 0
@@ -35,7 +49,7 @@ function initSchema() {
 
         CREATE TABLE IF NOT EXISTS equipment (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_id     INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+            snapshot_id     INTEGER NOT NULL,
             name            TEXT,
             vulnerabilities INTEGER DEFAULT 0
         );
@@ -44,6 +58,23 @@ function initSchema() {
         CREATE INDEX IF NOT EXISTS ix_equipment_snapshot    ON equipment(snapshot_id, vulnerabilities DESC);
         CREATE INDEX IF NOT EXISTS ix_snapshots_date        ON snapshots(snapshot_date DESC);
     `);
+    saveDb();
 }
 
-module.exports = { getDb };
+function query(sql, params = []) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return rows;
+}
+
+function run(sql, params = []) {
+    db.run(sql, params);
+    saveDb();
+}
+
+module.exports = { getDb, query, run, saveDb };
