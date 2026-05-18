@@ -345,6 +345,7 @@ class VulnerabilityTracker {
 
     displayHistory(snapshots) {
         const el = document.getElementById('historyList');
+        if (!el) return;
         if (!snapshots || snapshots.length === 0) {
             el.innerHTML = '<p class="no-data">No hay datos históricos</p>';
             return;
